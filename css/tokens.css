@@ -1,0 +1,19 @@
+/* Shared visual language derived from geo_art's final computed design, not its override stack. */
+@font-face { font-family: 'Cormorant Garamond'; src: url('../fonts/CormorantGaramond-Regular.ttf') format('truetype'); font-weight: 400; font-style: normal; font-display: swap; }
+:root {
+  color-scheme: light;
+  --font-body: 'Cormorant Garamond', Georgia, serif;
+  --color-paper: #eae7df; --color-ink: #252c29; --color-muted: #62695f;
+  --color-line: #cecec3; --color-accent: #ae4b31; --color-on-ink: #f3f0e7;
+  --color-hover: #dedfd3; --color-primary-hover: #404b43; --color-art-ground: #f0ebdf;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 40px; --space-8: 64px;
+  --text-caption: 11px; --text-note: 15px; --text-label: 16px; --text-control: 17px; --text-body: 18px;
+  --page-gutter: 4%; --content-max: 1600px; --header-height: 88px;
+  --border: 1px solid var(--color-line); --focus: 2px solid var(--color-accent);
+  --art-shadow: 0 9px 24px #25251c16; --duration: 150ms; --touch-size: 44px;
+}
+:root[data-theme='tint'] { --color-paper: var(--atmo, #eae7df); --color-ink: var(--tint-ink, #252c29); --color-muted: var(--tint-muted, #62695f); --color-line: var(--tint-line, #cecec3); --color-hover: var(--tint-line, #cecec3); }
+:root[data-theme='dark'] { color-scheme: dark; --color-paper: var(--atmo-deep, #23262a); --color-ink: #efeae6; --color-muted: #c1bcb7; --color-line: #666865; --color-accent: #f0a185; --color-on-ink: #252c29; --color-hover: #454944; --color-primary-hover: #d5d9cd; }
+@media (prefers-color-scheme: dark) { :root[data-theme='system'] { color-scheme: dark; --color-paper: var(--atmo-deep, #23262a); --color-ink: #efeae6; --color-muted: #c1bcb7; --color-line: #666865; --color-accent: #f0a185; --color-on-ink: #252c29; --color-hover: #454944; --color-primary-hover: #d5d9cd; } }
+@media (prefers-reduced-motion: reduce) { :root { --duration: 0ms; } }

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" data-theme="paper">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Bezier Life</title>
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#form">Skip to controls</a>
+    <header class="site-header"><span class="wordmark">BEZIER <i>/</i> LIFE</span><span class="eyebrow header-note">A STUDY IN CONTINUITY</span><span class="eyebrow edition">GENERATIVE PORTRAITS · 09</span></header>
+    <main class="studio">
+      <section class="origin" aria-labelledby="title"><div class="eyebrow"><span class="dot"></span> A PORTRAIT OF A MOMENT</div><h1 id="title">One life,<br>one stroke.</h1><p class="lede">A name. A moment of birth. A continuous brush stroke, tracing a journey that is yours alone.</p><div class="section-number">01 <span>YOUR BEGINNING</span></div>
+        <form id="form" novalidate>
+          <label>Name<input class="field" type="text" id="name" autocomplete="off" maxlength="60" /></label>
+          <div class="row">
+            <label>Birth date<input class="field" type="date" id="date" min="1900-01-01" /></label>
+            <label>Birth time<input class="field" type="time" id="time" /></label>
+          </div>
+          <p class="err" id="err" role="alert"></p>
+          <button class="btn btn-primary" type="submit" id="gen">Generate</button>
+        </form>
+        <button class="btn moment" type="button" id="moment">A life A moment</button>
+
+      </section>
+      <section class="gallery" aria-label="Artwork and time"><div class="art-meta"><span>THE CONTINUOUS JOURNEY</span><span>BEZIER LIFE / V2.3</span></div><div class="stage" id="stage"><canvas id="art" aria-label="Generated artwork"></canvas><canvas id="gl" aria-label="Generated artwork, lit in 3D" hidden></canvas></div><div class="art-meta"><span>ONE LIFE, ONE STROKE</span><span>五行 · FIVE ELEMENTS</span></div><div class="timeline panel">
+        <div>
+          <div class="time-head"><span>Time</span><output id="phiOut">0.0 years</output></div>
+          <input
+            type="range"
+            id="phi"
+            min="-10"
+            max="10"
+            step="0.05"
+            value="0"
+            aria-label="Time, in years from the moment of birth"
+          />
+          <div class="scale"><span>10 years before</span><span>birth</span><span>10 years after</span></div>
+          <label class="check"><input type="checkbox" id="live" /> Let time drift</label>
+        </div>
+
+      </div></section>
+      <aside class="impression" aria-label="Portrait details"><div class="section-number">02 <span>YOUR IMPRESSION</span></div>
+        <div class="foot">
+          <p class="meta" id="journeyInfo"></p>
+          <div class="element" id="elementBox" hidden>
+            <span class="el-char" id="elChar" aria-hidden="true"></span>
+            <div>
+              <p class="meta el-text" id="elText"></p>
+              <p class="meta" id="elPal"></p>
+            </div>
+          </div>
+          <p class="meta" id="seedInfo"></p>
+          <div class="group" id="saveGroup">
+            <span class="glabel" id="gSize">Image size (long side)</span>
+            <div class="views" role="radiogroup" aria-labelledby="gSize">
+              <label><input type="radio" name="size" value="2048" />2K</label>
+              <label><input type="radio" name="size" value="4096" />4K</label>
+              <label><input type="radio" name="size" value="8192" checked />8K</label>
+            </div>
+            <button class="btn ghost" type="button" id="exportBtn" disabled>Save image</button>
+            <p class="err" id="saveErr" role="status"></p>
+          </div>
+        </div>      </aside>
+      <details class="studio-bottom"><summary>Studio controls <span>Style, density &amp; format</span></summary><div class="tune">
+        <div class="group">
+          <span class="glabel" id="gStyle">Style</span>
+          <div class="views" role="radiogroup" aria-labelledby="gStyle">
+            <label><input type="radio" name="style" value="painterly" checked />Painterly</label>
+            <label><input type="radio" name="style" value="graphic" />Graphic</label>
+            <label><input type="radio" name="style" value="ink" />Ink</label>
+          </div>
+        </div>
+        <div class="group">
+          <span class="glabel" id="gDens">Point density</span>
+          <div class="views" role="radiogroup" aria-labelledby="gDens">
+            <label><input type="radio" name="density" value="1" checked />1×</label>
+            <label><input type="radio" name="density" value="2" />2×</label>
+            <label><input type="radio" name="density" value="3" />3×</label>
+            <label><input type="radio" name="density" value="5" />5×</label>
+            <label><input type="radio" name="density" value="10" />10×</label>
+          </div>
+        </div>
+        <div class="group">
+          <span class="glabel" id="gView">View</span>
+          <div class="views" role="radiogroup" aria-labelledby="gView">
+            <label><input type="radio" name="view" value="art" checked />Artwork</label>
+            <label><input type="radio" name="view" value="journey" />Journey</label>
+          </div>
+        </div>
+        <div class="group">
+          <span class="glabel" id="gAsp">Format</span>
+          <div class="views" role="radiogroup" aria-labelledby="gAsp">
+            <label><input type="radio" name="aspect" value="3:4" checked />3:4</label>
+            <label><input type="radio" name="aspect" value="1:1" />1:1</label>
+            <label><input type="radio" name="aspect" value="4:3" />4:3</label>
+          </div>
+        </div>
+        <p class="meta" id="glNote" hidden>
+          This browser can't run WebGL2, so Painterly and Graphic are shown flat, without 3D lighting.
+        </p>
+
+<div class="group"><label for="theme">Studio appearance</label><select class="field" id="theme"><option value="paper">Paper</option><option value="tint">Artwork tint</option><option value="dark">Dark</option><option value="system">System</option></select></div></div></details>
+    </main><footer class="site-footer"><span>BEZIER LIFE</span><span>Every life leaves a different line.</span><span>A LIFE · A MOMENT</span></footer>
+    <!--
+  Scripts: classic <script> files sharing one namespace, window.BL.
+  Order matters (each file uses modules loaded before it). No build step,
+  so the page also runs by double-clicking index.html (file://).
+-->
+    <!-- Vendor (MIT): three.js r149 (3D), fflate 0.8.2 (PNG compression) -->
+    <script src="vendor/three.min.js"></script>
+    <script src="vendor/fflate.umd.js"></script>
+    <!-- Core -->
+    <script src="js/core/version.js"></script>
+    <script src="js/core/math.js"></script>
+    <script src="js/core/random.js"></script>
+    <script src="js/core/color.js"></script>
+    <script src="js/core/frame.js"></script>
+    <!-- Model: seed → genome → expression at time φ -->
+    <script src="js/model/five-elements.js"></script>
+    <script src="js/model/spine.js"></script>
+    <script src="js/model/planner.js"></script>
+    <script src="js/model/profile.js"></script>
+    <script src="js/model/styles.js"></script>
+    <script src="js/model/piece.js"></script>
+    <!-- Rendering -->
+    <script src="js/render/render2d.js"></script>
+    <script src="js/render/render3d.js"></script>
+    <!-- Export -->
+    <script src="js/export/png-stream.js"></script>
+    <script src="js/export/export.js"></script>
+    <!-- App -->
+    <script src="js/app/seed.js"></script>
+    <script src="js/app/diagnostics.js"></script>
+    <script src="js/app/main.js"></script>
+  </body>
+</html>
