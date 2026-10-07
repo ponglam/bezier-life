@@ -25,7 +25,7 @@
         <button class="btn moment" type="button" id="moment">A life A moment</button>
 
       </section>
-      <section class="gallery" aria-label="Artwork and time"><div class="art-meta"><span>THE CONTINUOUS JOURNEY</span><span>BEZIER LIFE / V2.3</span></div><div class="stage" id="stage"><canvas id="art" aria-label="Generated artwork"></canvas><canvas id="gl" aria-label="Generated artwork, lit in 3D" hidden></canvas></div><div class="art-meta"><span>ONE LIFE, ONE STROKE</span><span>五行 · FIVE ELEMENTS</span></div><div class="timeline panel">
+      <section class="gallery" aria-label="Artwork and time"><div class="art-meta"><span>THE CONTINUOUS JOURNEY</span><span>BEZIER LIFE / V3.2</span></div><div class="stage" id="stage"><canvas id="art" aria-label="Generated artwork"></canvas><canvas id="gl" aria-label="Generated artwork, lit in 3D" hidden></canvas></div><div class="art-meta"><span>ONE LIFE, ONE STROKE</span><span>五行 · FIVE ELEMENTS</span></div><div class="timeline panel">
         <div>
           <div class="time-head"><span>Time</span><output id="phiOut">0.0 years</output></div>
           <input
@@ -102,6 +102,7 @@
           This browser can't run WebGL2, so Painterly and Graphic are shown flat, without 3D lighting.
         </p>
 
+<div class="group"><label for="family">Spine family</label><select class="field" id="family"><option value="">From the seed</option></select></div>
 <div class="group"><label for="theme">Studio appearance</label><select class="field" id="theme"><option value="paper">Paper</option><option value="tint">Artwork tint</option><option value="dark">Dark</option><option value="system">System</option></select></div></div></details>
     </main><footer class="site-footer"><span>BEZIER LIFE</span><span>Every life leaves a different line.</span><span>A LIFE · A MOMENT</span></footer>
     <!--
@@ -121,6 +122,7 @@
     <!-- Model: seed → genome → expression at time φ -->
     <script src="js/model/five-elements.js"></script>
     <script src="js/model/spine.js"></script>
+    <script src="js/model/archetypes.js"></script>
     <script src="js/model/planner.js"></script>
     <script src="js/model/profile.js"></script>
     <script src="js/model/styles.js"></script>

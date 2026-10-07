@@ -170,10 +170,13 @@
     const S = ui.piece;
     if (!S) return;
     const G = S.G;
-    const arcs = G.segs.filter((s) => s.type === 'A').length;
+    const segs = S.sp.segs || G.segs, // v3.0: the future dominant at this φ
+      exitSide = S.sp.exitSide !== undefined ? S.sp.exitSide : G.exitSide;
+    const arcs = segs.filter((s) => s.type === 'A').length;
     $('journeyInfo').textContent =
-      `Enters from the ${F.SIDES[G.entrySide]} and leaves from the ${F.SIDES[G.exitSide]}, in ${G.segs.length} segments ` +
-      `(${arcs} arcs, ${G.segs.length - arcs} straights) and ${pointCount(S).toLocaleString('en-US')} points.`;
+      `Enters from the ${F.SIDES[G.entrySide]} and leaves from the ${F.SIDES[exitSide]}, in ${segs.length} segments ` +
+      `(${arcs} arcs, ${segs.length - arcs} straights) and ${pointCount(S).toLocaleString('en-US')} points.` +
+      (G.archetype ? ` Spine family: ${BL.archetypes.describe(G.archetype)}.` : '');
   }
   function showReading() {
     const rd = ui.seed.reading,
@@ -342,6 +345,20 @@
     request();
   });
   onRadio('aspect', (v) => setAspect(v));
+  // v3.1 spine family: "From the seed" by default; picking one forces the main family (blend + jitter stay seeded)
+  const famSel = $('family');
+  for (const k of BL.archetypes.KEYS) {
+    const f = BL.archetypes.FAMILIES[k],
+      o = document.createElement('option');
+    o.value = k;
+    o.textContent = `${f.en} ${f.zh}`;
+    famSel.appendChild(o);
+  }
+  famSel.addEventListener('change', () => {
+    BL.planner.forceFamily = famSel.value || null;
+    if (ui.seed) rebuild();
+    request();
+  });
   onRadio('size', (v) => {
     ui.exportSize = parseInt(v, 10);
   });

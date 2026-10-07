@@ -17,6 +17,7 @@
   'use strict';
   const { clamp } = BL.math;
   const { tn, timeCoord } = BL.random;
+  const F = BL.frame;
   const { edgePoint } = BL.frame;
 
   /** Arc length of a segment. */
@@ -141,6 +142,7 @@
 
   /** Genome + TIME phase φ → dense spine samples (spacing ds), fitted to the entry/exit edges. */
   function buildSpine(G, phi, ds) {
+    if (G.mode === 'life') return buildLifeSpine(G, phi, ds);
     const T = { seed: G.timeSeed, x: timeCoord(phi) };
     const segs = G.segs.map((g) =>
       g.type === 'S'
@@ -219,10 +221,136 @@
   }
   /* The genome must hold up across the whole time range, not just at φ = 0 */
 
+  /* ---- v3.0 Life spine --------------------------------------------------------------------
+   * The visitor's stroke at time φ = a blend of the five anchor futures (planner.planLife).
+   * Blending happens on curvature along absolute arc length, integrated from the shared start:
+   *   - every future has the same prologue, so the beginning is identical at every φ;
+   *   - after it, small differences in turning add up, so the stroke drifts further apart
+   *     the further it travels: end and exit differ from year to year;
+   *   - Catmull-Rom weights across the anchor years give a continuous, gradual morph.
+   * Past the end of a shorter future its curvature is 0 (straight on). The spine is then
+   * extended straight until it leaves the frame, wherever that is.
+   */
+  /** Catmull-Rom weights of the anchors (sorted years) at φ. */
+  function anchorWeights(years, phi) {
+    const n = years.length,
+      w = new Float64Array(n);
+    const x = clamp(phi, years[0], years[n - 1]);
+    let j = 0;
+    while (j < n - 2 && x > years[j + 1]) j++;
+    const t = (x - years[j]) / (years[j + 1] - years[j]),
+      t2 = t * t,
+      t3 = t2 * t;
+    const cw = [
+      -0.5 * t3 + t2 - 0.5 * t,
+      1.5 * t3 - 2.5 * t2 + 1,
+      -1.5 * t3 + 2 * t2 + 0.5 * t,
+      0.5 * t3 - 0.5 * t2,
+    ];
+    for (let q = 0; q < 4; q++) w[clamp(j - 1 + q, 0, n - 1)] += cw[q];
+    return w;
+  }
+  /** Curvature and segment index of an anchor's segment list along arc length (pointer walk). */
+  function anchorTrack(segs) {
+    let i = 0,
+      s0 = 0;
+    return (s) => {
+      while (i < segs.length && s > s0 + segLength(segs[i])) {
+        s0 += segLength(segs[i]);
+        i++;
+      }
+      if (i >= segs.length) return { k: 0, seg: segs.length - 1, f: 1 };
+      const g = segs[i];
+      return { k: g.type === 'A' ? g.dir / g.r : 0, seg: i, f: (s - s0) / segLength(g) };
+    };
+  }
+  /** Which edge a point outside the frame lies beyond (0 top, 1 right, 2 bottom, 3 left). */
+  function sideOf(x, y) {
+    const d = [-y, x - F.W, y - F.H, -x];
+    return d.indexOf(Math.max(...d));
+  }
+  function buildLifeSpine(G, phi, ds) {
+    const years = G.anchors.map((a) => a.year),
+      w = anchorWeights(years, phi);
+    let L = 0;
+    G.anchors.forEach((a, i) => (L += w[i] * a.L));
+    L = Math.max(L, G.prologueLen + 200);
+    const tracks = G.anchors.map((a) => anchorTrack(a.segs));
+    let dom = 0;
+    for (let i = 1; i < w.length; i++) if (w[i] > w[dom]) dom = i; // for colours in the Journey view
+    const nn = Math.max(2, Math.ceil(L / ds) + 1),
+      step = L / (nn - 1);
+    const raw = new Array(nn);
+    for (let j = 0; j < nn; j++) {
+      const s = j * step;
+      let k = 0,
+        segInfo = null;
+      for (let i = 0; i < tracks.length; i++) {
+        const r = tracks[i](s);
+        if (w[i] !== 0) k += w[i] * r.k;
+        if (i === dom) segInfo = r;
+      }
+      raw[j] = { x: 0, y: 0, h: 0, k, seg: segInfo.seg, f: segInfo.f, s };
+    }
+    raw[0].x = G.start.x;
+    raw[0].y = G.start.y;
+    raw[0].h = G.h0;
+    easeCurvature(raw, SMOOTH_JOINT); // also integrates heading and position from the shared start
+    // straight on, far enough to be sure it has left the frame. No trimming: a trimmed end would
+    // jump whenever the blend crossed an edge; past the frame the extra length is simply unseen.
+    const last = raw[nn - 1],
+      ext = Math.hypot(F.W, F.H) + 200,
+      ne = Math.ceil(ext / step);
+    let exitSide = null;
+    for (let e = 1; e <= ne; e++) {
+      const d = e * step,
+        x = last.x + Math.cos(last.h) * d,
+        y = last.y + Math.sin(last.h) * d;
+      raw.push({ x, y, h: last.h, k: 0, seg: last.seg, f: 1, s: last.s + d });
+      if (exitSide === null && (x < -40 || x > F.W + 40 || y < -40 || y > F.H + 40)) exitSide = sideOf(x, y);
+    }
+    const n = raw.length,
+      total = raw[n - 1].s || 1,
+      end = raw[n - 1];
+    const sp = {
+      n,
+      xs: new Float32Array(n),
+      ys: new Float32Array(n),
+      nx: new Float32Array(n),
+      ny: new Float32Array(n),
+      k: new Float32Array(n),
+      u: new Float32Array(n),
+      f: new Float32Array(n),
+      seg: new Int16Array(n),
+      len: total,
+      kf: 1,
+      rot: 0,
+      segs: G.anchors[dom].segs,
+      ds,
+      weights: Array.from(w),
+      exitSide: exitSide === null ? sideOf(end.x, end.y) : exitSide,
+      visibleEnd: last.s, // arc length where the blended journey ends (the rest is the straight run-out)
+    };
+    for (let i = 0; i < n; i++) {
+      const q = raw[i];
+      sp.xs[i] = q.x;
+      sp.ys[i] = q.y;
+      sp.nx[i] = -Math.sin(q.h);
+      sp.ny[i] = Math.cos(q.h);
+      sp.k[i] = q.k;
+      sp.u[i] = q.s / total;
+      sp.f[i] = q.f;
+      sp.seg[i] = q.seg;
+    }
+    return sp;
+  }
+
   BL.spine = {
     segLength,
     walkSeg,
     buildSpine,
+    buildLifeSpine,
+    anchorWeights,
     softOffset,
     offsetAt,
     smoothOffsets,

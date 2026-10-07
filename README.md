@@ -1,9 +1,98 @@
-# Bezier Life · v2.3
+# Bezier Life · v3.2
 
 A generative artwork. Each visitor enters a **name**, a **birth date** and a **birth time**. These
 become a unique seed, and the seed decides one continuous brush stroke: its journey across the canvas,
 its brush character, its colours and its lighting. The visitor's Chinese **five element (五行)** sets
 the palette, and a **TIME** slider (±10 years) slowly reshapes the same stroke.
+
+## Studio interface
+
+This edition preserves the Geo Art / The Silence interface: locally bundled Cormorant Garamond, paper/tint/dark/system appearance, responsive three-column layout, and expandable Studio controls. The v3.2 engine is imported from the OPUS reference without algorithm changes. Choose a spine family in Studio controls, or leave “From the seed” selected.
+
+## What changed in v3.2: rebel strands
+
+**What happens.** 2–4% of the sub-strokes stop following the stroke at their own **rebellion point** (15–85% along the journey) and run a path of their own. The sub-strokes are the Ink bristles, the Graphic lines and the Painterly bristles.
+
+**How a rebel leaves.** It departs smoothly, from the same position and heading.
+- For about 120 units it still bends with the stroke.
+- Then it swerves out to its own side and wanders on its own curvature.
+- It thins out and ends after 300–1,200 units.
+- The seed decides which strands rebel, where, how far they run and how they wander (streams `/rebels/<style>`).
+
+**Per style:**
+- **Ink.** The bristle carries its ink away, reads a little bolder, and tapers to nothing.
+- **Graphic.** In 2D the line follows its own path; in 3D its tube continues from the exact point where it left. A piece has about 0–1 rebel lines (9–24 lines × 2–4%).
+- **Painterly 3D.** The shader hides the bristle on the ribbon after its rebellion point. It continues as its own thin lit tube in the bristle's colour, which also casts shadows, and appears in the reveal animation once the stroke reaches it.
+
+**Code.** `makeRebels`, `rebelIndex` and `rebelPath` are in `profile.js`.
+
+## What changed in v3.1: spine families
+
+The spine grammar (straights + n/8 arcs) is now driven by a **spine family** studied from reference paintings (`js/model/archetypes.js`):
+
+| Family | Studied from | Character |
+|---|---|---|
+| Knot 結 | v1–v3.0 default | approach, a dense knot, departure |
+| Scroll 卷 | teal & violet ribbons | wide open C / U sweeps that reverse |
+| Drape 垂 | blue wave | one long falling sweep, almost no loops |
+| Serpent 蛇行 | grooved knot | big loops stacked in a column, alternating |
+| Meander 蜿蜒 | green contours | many small alternating bends |
+| Vortex 漩 | white on blue column | tight same-way swirls rising in a column |
+| Switchback 折返 | violet ribbon | long side-to-side sweeps with hairpin turns |
+| Glyph 字 | olive calligraphy | a short gesture: a drop, a loop, a flick |
+| Hook 鉤 | black & white on linen | a long sweep into one big closed loop |
+
+**What each family sets.** A family is a set of planner parameters:
+- how often straights appear, and their lengths;
+- arc sizes (n) and radii;
+- the chance that the next arc turns the other way: S-curves, or the same way for coils;
+- the pull toward a knot;
+- a corridor (a column) and an axis, which also decides the entry and exit edges;
+- a preference for sideways sweeps;
+- the journey length.
+
+**How the seed picks a variant.** The seed picks the main family, a second family and a blend of 0–35% of the second. It then jitters every number by up to ±12%, so each visitor gets their own variant, for example "Serpent 蛇行, with a touch of Drape 垂".
+
+**Strict families keep their shape across TIME.** Serpent, Switchback and Vortex rarely change arc sizes when the TIME futures mutate, so they stay recognisable.
+
+**Spine family picker.** The panel has a picker. "From the seed" is the default; choosing a family forces the main family, while the blend and jitter still come from the seed. This is meant for curation and testing. In code it is `BL.planner.forceFamily`.
+
+**Results.** On test seeds, 2–4 of every 4 pieces per family pass all checks at the first good attempt; the rest use the best of 60 attempts. No sharp bends were introduced (sharpest turn ≤ ~32°).
+
+## What changed in v3.0: Life journeys (TIME = a life that drifts)
+
+In v1–v2.4, TIME only stretched one fixed journey a little. In v3.0, every TIME gives **the same beginning and a different life**: the stroke starts identically, and the further it travels, the further it drifts from the other years. By ±10 years the knots, the loops and the exit edge are all different. Moving the slider (or letting time drift) shows the change happening gradually.
+
+**How it works:**
+- **Planning** (`planner.planLife`):
+  - **Shared start.** The prologue, the first 3–6% of the journey, is planned once.
+  - **The φ = 0 future.** It is planned from there like a v1 journey: knot, exit, homing.
+  - **Other years.** Futures for the other years are a chain of small mutations, one anchor year every 1.25 years out to ±10 (17 futures). Each step changes 3–4 segments of its neighbour: a turn wider or tighter, a loop one eighth longer or shorter, a straight longer or shorter. There are no flips of turn direction, which would swing everything after them at once.
+  - **In-frame check.** Every mutation is checked to stay in the frame.
+- **Drawing** (`spine.buildLifeSpine`):
+  - The futures are blended with Catmull-Rom weights across the anchor years, by curvature along the arc length.
+  - The spine is then integrated from the shared start point and heading, and eased as in v2.3.
+  - It is extended straight until it has surely left the frame. That run-out is never trimmed, so nothing jumps when the end crosses an edge.
+- **Stroke profile.** Width and twist keyframes are now spaced by arc length (every 170 units), because segments differ between futures.
+- **Journey view.** It draws all the anchor futures faintly, labelled with their year, so you can see the spread.
+
+**Checks.** `planner.evaluate` checks 17 TIME values for frame margins, and that no run-out comes back into the frame. On 20 test seeds:
+- Every genome passed.
+- At −10 versus +10, the second half of the journey lies 200–2,100 units apart, and the exit edge usually differs.
+- The visible stroke moves at most about 50–175 units per 0.05 years of TIME.
+
+**Settings.** `BL.planner.MODE = 'life'`. Set it to `'classic'` to get the v2.4 journey behaviour back.
+
+## What changed in v2.4: hand tremor
+
+- **Gentle sideways wobble.** Every strand now wobbles slightly sideways, in all three styles, so lines can be shaky and bumpy while their direction still changes smoothly.
+- **Added after the v2.3 smoothing.** The tremor is applied after `smoothOffsets`. Its amplitude is at most about 3 units over periods of 50–140 units, so every wobble stays a soft curve, never a corner.
+- **Each piece has its own steadiness.** The seed sets an amplitude of 0.4–2.2 units. Each strand has its own timing, there is also a shared slow sway, and the tremor drifts slowly with the TIME phase.
+  - **Ink:** per bristle; far strands shake 1.6× more.
+  - **Graphic:** per line.
+  - **Painterly 3D:** the whole ribbon sways, and its edges wobble more than its middle. This is a smooth function across the ribbon, so mesh columns never cross.
+- **Code.** `makeTremor` and `tremorAt` are in `profile.js`, with new streams `/tremor/<style>`.
+- **Checked.** `kinkReport` shows no new sharp bends.
 
 ## What changed in v2.3: smooth bends
 
@@ -50,7 +139,7 @@ The few turns that remain above 30° are smooth tight curves, not corners. To lo
 
 Open `index.html` in a recent desktop browser (Chrome, Edge, Firefox or Safari).
 - **No build step and no server.** Double-clicking the file works, because the scripts are classic `<script>` files rather than ES modules.
-- **Offline.** three.js and fflate are bundled in `vendor/`. The only online resource is the two display fonts (Google Fonts); offline, the page falls back to system fonts.
+- **Offline.** three.js and fflate are bundled in `vendor/`. Cormorant Garamond is bundled locally in `fonts/`, including its SIL Open Font License.
 - **WebGL2 needed for 3D.** The 3D styles need WebGL2. Without it, Painterly and Graphic are drawn flat.
 
 ## Folder structure
@@ -68,6 +157,7 @@ js/core/
   frame.js              logical frame (F.W × F.H), formats 3:4 / 1:1 / 4:3, frame edges
 js/model/
   five-elements.js      birth moment → day master → element → palette (20 palettes)
+  archetypes.js         spine families from reference paintings; seed picks + blends + jitters
   spine.js              segment grammar (straight + n/8 arcs), exact sampler, edge fit
   planner.js            journey planner: entry/exit sides, approach → knot → departure
   profile.js            width, twist, paint load, brush pressure, bristle dropout
@@ -177,5 +267,4 @@ const { blob } = await BL.exporter.renderLarge(piece, { longSide: 8192 });
 
 ## Licences
 
-three.js and fflate are MIT licensed (see their headers in `vendor/`). The Instrument Serif and Hanken
-Grotesk fonts are served by Google Fonts under the SIL Open Font License.
+three.js and fflate are MIT licensed (see their headers in `vendor/`). Cormorant Garamond is bundled under the SIL Open Font License (see `fonts/OFL.txt`).

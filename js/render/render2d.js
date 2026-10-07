@@ -19,7 +19,7 @@
   const { laneV } = BL.profile;
   const F = BL.frame;
 
-  const { offsetAt, pointAt } = BL.spine; // v2.3: smooth inner-side compression (see spine.js)
+  const { offsetAt } = BL.spine; // v2.3: smooth inner-side compression (see spine.js)
   /** Painterly background: base colour + soft glow. */
   function drawBackground(ctx, pal) {
     ctx.fillStyle = css(pal.bg);
@@ -106,11 +106,11 @@
         if (g.w[m] < 0.12) continue;
         ctx.beginPath();
         for (let k = a; k <= b; k++) {
-          const q = pointAt(sp, k, g.ip[k] - g.w[k] * 0.5);
+          const q = [g.cx[k] - g.pnx[k] * g.w[k] * 0.5, g.cy[k] - g.pny[k] * g.w[k] * 0.5];
           k === a ? ctx.moveTo(q[0], q[1]) : ctx.lineTo(q[0], q[1]);
         }
         for (let k = b; k >= a; k--) {
-          const q = pointAt(sp, k, g.ip[k] + g.w[k] * 0.5);
+          const q = [g.cx[k] + g.pnx[k] * g.w[k] * 0.5, g.cy[k] + g.pny[k] * g.w[k] * 0.5];
           ctx.lineTo(q[0], q[1]);
         }
         ctx.closePath();
@@ -303,7 +303,23 @@
       ctx.restore();
     };
     edge(G.entrySide, []);
-    edge(G.exitSide, [18, 12]);
+    edge(S.sp.exitSide !== undefined ? S.sp.exitSide : G.exitSide, [18, 12]);
+    // v3.0: the five futures (anchor years) as faint lines, so the drift through TIME is visible
+    if (G.mode === 'life') {
+      if (!S.futures) S.futures = G.anchors.map((a) => BL.spine.buildSpine(G, a.year, 4));
+      ctx.lineWidth = 1.5;
+      ctx.font = '400 18px "Hanken Grotesk",system-ui,sans-serif';
+      S.futures.forEach((f, i) => {
+        ctx.strokeStyle = ink + '0.12)';
+        ctx.beginPath();
+        for (let q = 0; q < f.n; q++) q ? ctx.lineTo(f.xs[q], f.ys[q]) : ctx.moveTo(f.xs[q], f.ys[q]);
+        ctx.stroke();
+        const yr = G.anchors[i].year,
+          q = Math.max(0, f.n - Math.round(60 / 4));
+        ctx.fillStyle = ink + '0.45)';
+        ctx.fillText((yr > 0 ? '+' : '') + yr, clamp(f.xs[q], 20, F.W - 60), clamp(f.ys[q], 30, F.H - 20));
+      });
+    }
     if (ghost) {
       ctx.strokeStyle = ink + '0.14)';
       ctx.lineWidth = 2;

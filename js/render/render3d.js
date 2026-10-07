@@ -17,8 +17,9 @@
  */
 (function (BL) {
   'use strict';
-  const { clamp } = BL.math;
-  const { tn, timeCoord } = BL.random;
+  const { clamp, smooth } = BL.math;
+  const { tn, timeCoord, vnoise } = BL.random;
+  const { tremorAt, rebelIndex, rebelPath } = BL.profile;
   const { mix, css } = BL.color;
   const { LANES } = BL.styles;
   const { dropTh, layoutReach } = BL.profile;
@@ -187,7 +188,7 @@
     return t;
   }
   const STROKE_PARS = `
-uniform sampler2D uLanes;uniform sampler2D uLaneMap;uniform sampler2D uLaneGeo;uniform float uSeed;uniform float uFray;uniform float uBump;uniform float uLaneCount;uniform float uDropTh;uniform float uVMax;uniform float uLoadExp;uniform float uLoadMin;uniform float uShadowFade;
+uniform sampler2D uLanes;uniform sampler2D uLaneMap;uniform sampler2D uLaneGeo;uniform float uSeed;uniform float uFray;uniform float uBump;uniform float uLaneCount;uniform float uDropTh;uniform float uVMax;uniform float uLoadExp;uniform float uLoadMin;uniform float uShadowFade;uniform sampler2D uLaneRebel;
 varying vec4 vStroke;
 float h1(float n){return fract(sin(n*12.9898+uSeed)*43758.5453);}
 float vn1(float x,float lane){float i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);return mix(h1(i+lane*157.0),h1(i+1.0+lane*157.0),f);}
@@ -204,6 +205,7 @@ float vv=vStroke.x,sArc=vStroke.y,uu=vStroke.z;
 float laneId=texture2D(uLaneMap,vec2(vv/uVMax*0.5+0.5,0.5)).r*255.0;
 if(laneId>254.5) discard;                                    // gap between bristles
 float lane=floor(laneId+0.5);
+if(sArc>texture2D(uLaneRebel,vec2((lane+0.5)/uLaneCount,0.5)).r+25.0) discard;   // v3.2: this bristle has left (see rebel tubes)
 vec4 LG=texture2D(uLaneGeo,vec2((lane+0.5)/uLaneCount,0.5));  // centre, half width, lag, far
 float lf=(vv-(LG.x-LG.y))/(2.0*LG.y);                         // 0…1 across this bristle
 // own thick–thin timing: the bristle narrows and widens, opening gaps that close again
@@ -305,6 +307,16 @@ if(ign>shF) discard;
       });
       map[i] = best;
     }
+    // v3.2: arc length where each bristle rebels (1e9 = never); updated per TIME in syncGL
+    const rebelTex = new THREE.DataTexture(
+      new Float32Array(LANES * 4).fill(1e9),
+      LANES,
+      1,
+      THREE.RGBAFormat,
+      THREE.FloatType
+    );
+    rebelTex.magFilter = rebelTex.minFilter = THREE.NearestFilter;
+    rebelTex.needsUpdate = true;
     const mapTex = new THREE.DataTexture(map, MAPN, 1, THREE.RedFormat, THREE.UnsignedByteType);
     mapTex.magFilter = mapTex.minFilter = THREE.NearestFilter;
     mapTex.needsUpdate = true;
@@ -328,6 +340,7 @@ if(ign>shF) discard;
       uLoadExp: { value: S.P.loadExp },
       uLoadMin: { value: S.P.loadMin },
       uShadowFade: { value: SHADOW_FADE },
+      uLaneRebel: { value: rebelTex },
     };
     m.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, uni);
@@ -348,7 +361,8 @@ if(ign>shF) discard;
     };
     m.customProgramCacheKey = () => 'bezier-stroke';
     m.userData.tex = tex;
-    m.userData.extra = [geoTex, mapTex];
+    m.userData.extra = [geoTex, mapTex, rebelTex];
+    m.userData.rebelTex = rebelTex;
     const dm = new THREE.MeshDepthMaterial({
       depthPacking: THREE.RGBADepthPacking,
       side: THREE.DoubleSide,
@@ -437,6 +451,19 @@ if(ign>shF) discard;
       for (let k = 0; k < n; k++) raw[k] = v * pr.hw[k] * pr.cth[k];
       cols.push(smoothOffsets(sp, raw));
     }
+    // v2.4 hand tremor: the whole ribbon sways a little and its edges wobble more than its middle
+    // (a smooth function of v, so neighbouring columns never cross)
+    const Tr = S.pal.tremor,
+      tx = timeCoord(S.phi);
+    for (let k = 0; k < n; k++) {
+      const s = sp.u[k] * sp.len,
+        sway = tremorAt(Tr, 0, s, tx),
+        edge = tremorAt(Tr, 1, s, tx);
+      for (let j = 0; j < A; j++) {
+        const v = -1 + (2 * j) / across;
+        cols[j][k] += sway + 0.8 * edge * v * Math.abs(v);
+      }
+    }
     for (let k = 0; k < n; k++) {
       ribbonFrame(S, k, f);
       const hw = pr.hw[k],
@@ -503,6 +530,14 @@ if(ign>shF) discard;
     const front = lin(L.col),
       back = lin(mix(L.col, GG.bg, 0.45)),
       bg = lin(GG.bg);
+    // v3.2 rebel: the 3D point where it leaves the stroke; after that it follows its own 2D path
+    const kr = g.rebelFrom;
+    let C3 = null;
+    if (kr < sp.n) {
+      const fr = ribbonFrame(S, kr, {}),
+        opr = g.ctr[kr] * fr.s;
+      C3 = [fr.X + fr.nx * g.ip[kr] + fr.bx * opr, fr.Y + fr.ny * g.ip[kr] + fr.by * opr, fr.Z + fr.bz * opr];
+    }
     for (let ki = 0; ki < n; ki++) {
       const k = ks[ki];
       ribbonFrame(S, k, f);
@@ -510,17 +545,24 @@ if(ign>shF) discard;
         ip = g.ip[k], // smoothed in-plane offset (see styles.graphicAt)
         op = ctr * f.s,
         r = g.w[k] * 0.5;
-      const cx = f.X + f.nx * ip + f.bx * op,
+      let cx = f.X + f.nx * ip + f.bx * op,
         cy = f.Y + f.ny * ip + f.by * op,
         cz = f.Z + f.bz * op;
-      const cc = mix(bg, f.c >= 0 ? front : back, 0.06 + 0.94 * g.f[k]);
+      const rebel = C3 && k >= kr;
+      if (rebel) {
+        cx = C3[0] + (g.cx[k] - g.cx[kr]);
+        cy = C3[1] - (g.cy[k] - g.cy[kr]);
+        cz = C3[2];
+      }
+      const cc = mix(bg, f.c >= 0 || rebel ? front : back, 0.06 + 0.94 * g.f[k]);
       for (let j = 0; j < R; j++) {
         const an = (2 * Math.PI * j) / radial,
           ca = Math.cos(an),
           sa = Math.sin(an);
-        const dx = f.ax * ca + f.snx * sa,
-          dy = f.ay * ca + f.sny * sa,
-          dz = f.az * ca + f.snz * sa,
+        // ring basis: the ribbon's width and normal, or for a rebel its own path normal and the view axis
+        const dx = rebel ? g.pnx[k] * ca : f.ax * ca + f.snx * sa,
+          dy = rebel ? -g.pny[k] * ca : f.ay * ca + f.sny * sa,
+          dz = rebel ? sa : f.az * ca + f.snz * sa,
           o = (ki * R + j) * 3;
         pos[o] = cx + dx * r;
         pos[o + 1] = cy + dy * r;
@@ -556,11 +598,115 @@ if(ign>shF) discard;
     return geo;
   }
   /** Rebuild meshes (and materials/backdrop when style or format changed) for the piece. */
+  /**
+   * v3.2 Painterly rebels: each rebel bristle leaves the ribbon (the shader hides it after its
+   * rebellion point) and continues as its own thin lit tube along rebelPath, thinning to its end.
+   */
+  function buildRebelTubes(S) {
+    const { sp, pr, pal } = S,
+      n = sp.n,
+      ds = sp.len / Math.max(1, n - 1),
+      Lay = pal.layout,
+      tex = S.strokeMat.userData.rebelTex,
+      out = [];
+    tex.image.data.fill(1e9);
+    for (const rb of pal.rebels.list) {
+      const kr = rebelIndex(sp, rb);
+      if (kr <= 2 || kr >= n - 3) continue;
+      tex.image.data[rb.j * 4] = sp.u[kr] * sp.len;
+      const L = Lay.lanes[rb.j],
+        f = ribbonFrame(S, kr, {});
+      const v = L.v0,
+        ip = BL.spine.softOffset(sp.k[kr], v * pr.hw[kr] * f.c),
+        op = v * pr.hw[kr] * f.s;
+      const X0 = f.X + f.nx * ip + f.bx * op,
+        Y0 = f.Y + f.ny * ip + f.by * op,
+        Z0 = f.Z + f.bz * op;
+      const x0 = sp.xs[kr] + sp.nx[kr] * ip,
+        y0 = sp.ys[kr] + sp.ny[kr] * ip,
+        h0 = Math.atan2(-sp.nx[kr], sp.ny[kr]);
+      const own = rebelPath(
+        rb,
+        x0,
+        y0,
+        h0,
+        ds,
+        (i) => sp.k[Math.min(n - 1, kr + i)],
+        Math.sign(v) || rb.side
+      );
+      const r0 = Math.max(0.9, 0.5 * Lay.spacing * L.w * pr.hw[kr] * 1.6),
+        radial = 6,
+        R = radial + 1,
+        m = own.n;
+      const pos = new Float32Array(m * R * 3),
+        nor = new Float32Array(m * R * 3),
+        idx = new Uint32Array((m - 1) * radial * 6);
+      for (let i = 0; i < m; i++) {
+        const cx = X0 + (own.x[i] - x0),
+          cy = Y0 - (own.y[i] - y0),
+          cz = Z0 + 25 * vnoise(rb.seed, 71, 0, (i * ds) / 300) * smooth(0, 200, i * ds),
+          nxw = -Math.sin(own.h[i]),
+          nyw = -Math.cos(own.h[i]),
+          r = r0 * own.taper(i);
+        for (let j = 0; j < R; j++) {
+          const an = (2 * Math.PI * j) / radial,
+            ca = Math.cos(an),
+            sa = Math.sin(an),
+            o = (i * R + j) * 3;
+          const dx = nxw * ca,
+            dy = nyw * ca,
+            dz = sa;
+          pos[o] = cx + dx * r;
+          pos[o + 1] = cy + dy * r;
+          pos[o + 2] = cz + dz * r;
+          nor[o] = dx;
+          nor[o + 1] = dy;
+          nor[o + 2] = dz;
+        }
+      }
+      let t = 0;
+      for (let i = 0; i < m - 1; i++)
+        for (let j = 0; j < radial; j++) {
+          const a = i * R + j,
+            b = a + R;
+          idx[t++] = a;
+          idx[t++] = b;
+          idx[t++] = a + 1;
+          idx[t++] = a + 1;
+          idx[t++] = b;
+          idx[t++] = b + 1;
+        }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+      geo.setIndex(new THREE.BufferAttribute(idx, 1));
+      geo.userData.step = radial * 6;
+      const col = new THREE.Color()
+        .setRGB(...pal.lanes[rb.j].c.map((c) => clamp(c, 0, 255) / 255))
+        .convertSRGBToLinear();
+      const mesh = new THREE.Mesh(
+        geo,
+        new THREE.MeshPhysicalMaterial({
+          color: col,
+          roughness: 0.45,
+          clearcoat: 0.3,
+          clearcoatRoughness: 0.35,
+        })
+      );
+      mesh.castShadow = mesh.receiveShadow = true;
+      mesh.userData.ownMaterial = true;
+      mesh.userData.startU = sp.u[kr]; // revealed once the main stroke gets there
+      out.push(mesh);
+    }
+    tex.needsUpdate = true;
+    return out;
+  }
   function syncGL(S) {
     if (!GL || !S) return;
     for (const m of GL.meshes) {
       GL.group.remove(m);
       m.geometry.dispose();
+      if (m.userData.ownMaterial) m.material.dispose();
     }
     GL.meshes = [];
     if (S.glStyle !== S.style || S.glAspect !== F.W / F.H) {
@@ -597,6 +743,7 @@ if(ign>shF) discard;
       m.customDepthMaterial = S.strokeMat.userData.depth;
       m.castShadow = m.receiveShadow = true;
       GL.meshes.push(m);
+      GL.meshes.push(...buildRebelTubes(S)); // v3.2
     } else {
       for (let li = 0; li < S.GG.lines.length; li++) {
         const m = new THREE.Mesh(buildLineGeom(S, li, S.lo ? 5 : 8), S.lineMat);
@@ -615,7 +762,9 @@ if(ign>shF) discard;
       const g = m.geometry,
         cnt = g.index.count,
         st = g.userData.step;
-      g.setDrawRange(0, progress >= 1 ? cnt : Math.floor((cnt * progress) / st) * st);
+      let p = progress;
+      if (m.userData.startU !== undefined) p = clamp((progress - m.userData.startU) / 0.15, 0, 1); // rebels start where they left
+      g.setDrawRange(0, p >= 1 ? cnt : Math.floor((cnt * p) / st) * st);
     }
     GL.renderer.render(GL.scene, GL.camera);
   }

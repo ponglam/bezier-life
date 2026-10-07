@@ -14,7 +14,19 @@
   const { clamp, smooth } = BL.math;
   const { makeRng, cyrb128, vnoise, tn, timeCoord } = BL.random;
   const { hsl, mix, jit, lumOf } = BL.color;
-  const { dropTh, dropAt, makeLayout, laneV, laneThick, blurArr } = BL.profile;
+  const {
+    dropTh,
+    dropAt,
+    makeLayout,
+    laneV,
+    laneThick,
+    blurArr,
+    makeTremor,
+    tremorAt,
+    makeRebels,
+    rebelIndex,
+    rebelPath,
+  } = BL.profile;
   const { smoothOffsets, pointAt } = BL.spine;
   const F = BL.frame;
 
@@ -40,6 +52,8 @@
     pal.layout = makeLayout(makeRng(master + '/layout/painterly'), LANES, {
       reach: 1.9,
     });
+    pal.tremor = makeTremor(makeRng(master + '/tremor/painterly'));
+    pal.rebels = makeRebels(makeRng(master + '/rebels/painterly'), LANES); // v3.2
     for (let j = 0; j < LANES; j++) {
       const v = clamp(pal.layout.lanes[j].v0, -1, 1);
       const t = clamp((v * pal.lightEdge + 1) / 2 + R.range(-0.18, 0.18), 0, 1);
@@ -99,6 +113,8 @@
       accent,
       lines,
       layout,
+      tremor: makeTremor(makeRng(master + '/tremor/graphic')),
+      rebels: makeRebels(makeRng(master + '/rebels/graphic'), nL), // v3.2
       gw: R.range(1.4, 3.4),
       spread: R.range(0.8, 1.25),
       wFreq: R.range(4, 9),
@@ -139,7 +155,62 @@
         ctr[k] = v[k] * S.pr.hw[k] * GG.spread; // offset along the ribbon width (3D)
         raw[k] = ctr[k] * S.pr.cth[k]; // its in-plane part (what 2D sees)
       }
-      return { w, f, v, ctr, ip: smoothOffsets(sp, raw) };
+      const ip = smoothOffsets(sp, raw),
+        tx = timeCoord(S.phi);
+      for (let k = 0; k < n; k++) ip[k] += tremorAt(GG.tremor, L.i, sp.u[k] * sp.len, tx); // v2.4 hand tremor
+      // v3.2: the line's 2D path (and normals); a rebel line leaves the stroke at its own point
+      const cx = new Float32Array(n),
+        cy = new Float32Array(n);
+      for (let k = 0; k < n; k++) {
+        cx[k] = sp.xs[k] + sp.nx[k] * ip[k];
+        cy[k] = sp.ys[k] + sp.ny[k] * ip[k];
+      }
+      let rebelFrom = n;
+      const rb = GG.rebels.byLane[L.i];
+      if (rb) {
+        const kr = rebelIndex(sp, rb);
+        if (kr > 2 && kr < n - 3) {
+          const h0 = Math.atan2(cy[kr + 1] - cy[kr - 1], cx[kr + 1] - cx[kr - 1]),
+            ds = sp.len / (n - 1);
+          const own = rebelPath(
+            rb,
+            cx[kr],
+            cy[kr],
+            h0,
+            ds,
+            (i) => sp.k[Math.min(n - 1, kr + i)],
+            Math.sign(v[kr]) || rb.side
+          );
+          const w0 = Math.max(w[kr], GG.gw * L.w0),
+            f0 = Math.max(f[kr], 0.6);
+          for (let k = kr; k < n; k++) {
+            const i = k - kr;
+            if (i < own.n) {
+              cx[k] = own.x[i];
+              cy[k] = own.y[i];
+              w[k] = w0 * own.taper(i);
+              f[k] = f0;
+            } else {
+              w[k] = 0; // finished: rest at its end point
+              cx[k] = own.x[own.n - 1];
+              cy[k] = own.y[own.n - 1];
+            }
+          }
+          rebelFrom = kr;
+        }
+      }
+      const pnx = new Float32Array(n),
+        pny = new Float32Array(n);
+      for (let k = 0; k < n; k++) {
+        const a = Math.max(0, k - 1),
+          b = Math.min(n - 1, k + 1),
+          tx2 = cx[b] - cx[a],
+          ty2 = cy[b] - cy[a],
+          l = Math.hypot(tx2, ty2) || 1;
+        pnx[k] = -ty2 / l;
+        pny[k] = tx2 / l;
+      }
+      return { w, f, v, ctr, ip, cx, cy, pnx, pny, rebelFrom };
     });
   }
 
@@ -196,6 +267,8 @@
         coreMax: 0.92,
         reach: 2.0,
       }),
+      tremor: makeTremor(makeRng(master + '/tremor/ink')),
+      rebels: makeRebels(makeRng(master + '/rebels/ink'), LANES_INK), // v3.2
     };
   }
   /** Ink level and stroke width per sample (gaps, re-dip after lifts, pressure at turns, spray). */
@@ -275,11 +348,46 @@
         x[k] = v[k] * width[k]; // offset; turned into a position below
       }
       // v2.3: ease the offset into and out of tight arcs, then place the bristle
-      const d = smoothOffsets(sp, x);
+      const d = smoothOffsets(sp, x),
+        tx = timeCoord(S.phi),
+        tk = LL.far ? 1.6 : 1; // far strands shake a little more
+      for (let k = 0; k < n; k++) d[k] += tk * tremorAt(IG.tremor, j, sp.u[k] * sp.len, tx); // v2.4 hand tremor
       for (let k = 0; k < n; k++) {
         const q = pointAt(sp, k, d[k]);
         x[k] = q[0];
         y[k] = q[1];
+      }
+      // v3.2: a rebel bristle leaves the stroke at its own point and runs its own path
+      const rebel = IG.rebels.byLane[j];
+      if (rebel) {
+        const kr = rebelIndex(sp, rebel);
+        if (kr > 2 && kr < n - 3) {
+          const h0 = Math.atan2(y[kr + 1] - y[kr - 1], x[kr + 1] - x[kr - 1]);
+          const own = rebelPath(
+            rebel,
+            x[kr],
+            y[kr],
+            h0,
+            ds,
+            (i) => sp.k[Math.min(n - 1, kr + i)],
+            Math.sign(v[kr]) || rebel.side
+          );
+          const a0 = Math.max(a[kr], 7); // the ink it carries away
+          for (let k = kr; k < n; k++) {
+            const i = k - kr;
+            if (i < own.n) {
+              x[k] = own.x[i];
+              y[k] = own.y[i];
+              const dn = vnoise(IG.drySeed, 44, j, i * ds * 0.02) * 0.5 + 0.5;
+              a[k] = Math.round(a0 * own.taper(i) * (0.7 + 0.3 * dn));
+              t[k] = Math.min(16, Math.round(t[k] * 1.4)); // a rebel reads a little bolder
+            } else {
+              a[k] = 0; // finished: rest at its end point
+              x[k] = own.x[own.n - 1];
+              y[k] = own.y[own.n - 1];
+            }
+          }
+        }
       }
       // v2.3: light smoothing of the bristle path itself (≈3 units), a last guard against corners
       const rb = Math.max(1, Math.round(1.5 / ds));
